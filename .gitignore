@@ -30,10 +30,15 @@ exports/*
 # Pero NO ignorar exporter.py
 !exports/exporter.py
 
-# Archivos de sesión
-state_tiktok.json
-state_instagram.json
-state_facebook.json
-state_x.json
-state_youtube.json
+# Archivos de sesión (cookies de Playwright) — NUNCA al repo
+state_*.json
 proxies.json
+
+# Variables de entorno — NUNCA al repo
+.env
+
+# Archivos de trabajo personal
+workspace.txt
+
+# Logs de la aplicación
+logs/

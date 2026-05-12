@@ -14,9 +14,9 @@ from routes.proxies import router_proxies
 
 # ========== FASTAPI APP SETUP ==========
 app = FastAPI(
-    title="FCT Scraper API",
-    description="API para scraping de redes sociales y web pública.",
-    version="1.0.0"
+    title="Veritrace API",
+    description="Plataforma de Due Diligence Digital. Análisis de huella pública en redes sociales para entornos de compliance, legal y finanzas.",
+    version="2.0.0"
 )
 
 app.mount("/static", StaticFiles(directory="static"), name="static")

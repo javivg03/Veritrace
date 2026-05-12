@@ -6,38 +6,41 @@ services:
     ports:
       - "6379:6379"
     networks:
-      - fct_scraper_backend_fct_network  # Redis conectado a la red correcta
+      - veritrace_network
 
   backend:
     build: .
-    container_name: fct_scraper_app
+    container_name: veritrace_app
     command: uvicorn app:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
     volumes:
       - .:/app
-      - C:/Users/javie/AppData/Local/Instaloader:/root/.config/instaloader
+      - instaloader_data:/root/.config/instaloader
     depends_on:
       - redis
-    environment:
-      - REDIS_URL=redis://redis:6379/0
+    env_file:
+      - .env
     networks:
-      - fct_scraper_backend_fct_network  # Backend conectado a la red correcta
+      - veritrace_network
 
   celery:
     build: .
-    container_name: fct_scraper_celery
+    container_name: veritrace_celery
     command: celery -A tasks.celery_worker worker --loglevel=info -Q scraping
     volumes:
       - .:/app
-      - C:/Users/javie/AppData/Local/Instaloader:/root/.config/instaloader
+      - instaloader_data:/root/.config/instaloader
     depends_on:
       - redis
-    environment:
-      - REDIS_URL=redis://redis:6379/0
+    env_file:
+      - .env
     networks:
-      - fct_scraper_backend_fct_network  # Celery conectado a la red correcta
+      - veritrace_network
 
 networks:
-  fct_scraper_backend_fct_network:
-    driver: bridge  # Definimos la red correctamente
+  veritrace_network:
+    driver: bridge
+
+volumes:
+  instaloader_data:
