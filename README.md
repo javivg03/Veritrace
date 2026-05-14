@@ -103,7 +103,7 @@ Entre otros puntos, el documento cubre:
 **Requisitos previos:** Docker Desktop, Git
 
 ```bash
-git clone https://github.com/TU-USUARIO/veritrace.git
+git clone https://github.com/javivg03/veritrace.git
 cd veritrace
 cp .env.example .env        # Edita .env con tus valores
 docker-compose up --build
