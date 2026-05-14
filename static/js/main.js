@@ -1,460 +1,352 @@
-let tareaActivaId = null; // Guardamos la tarea en curso para poder cancelarla si el usuario pulsa "Cancelar"
+/* ================================================================
+   main.js — Orquestación principal de Veritrace
+   Gestiona navegación, selección de plataforma y flujo de scraping.
+   Depende de: api.js, ui.js (cargados antes en el HTML)
+   ================================================================ */
+
+let tareaActivaId  = null;
+let plataformaActual = "instagram";
+let tipoActual       = "perfil";
+
+/* ---- Configuración ---- */
+
+const TIPOS_POR_PLATAFORMA = {
+  instagram: ["perfil", "seguidores", "seguidos"],
+  tiktok:    ["perfil", "seguidores", "seguidos"],
+  x:         ["perfil", "tweets"],
+  youtube:   ["canal"],
+  telegram:  ["canal"],
+  facebook:  ["perfil"],
+  web:       ["perfil", "buscar"]
+};
+
+const ETIQUETAS_TIPO = {
+  perfil:    "Perfil",
+  seguidores: "Seguidores",
+  seguidos:  "Seguidos",
+  tweets:    "Tweets",
+  canal:     "Canal",
+  buscar:    "Palabra clave"
+};
+
+const ENDPOINT_MAP = {
+  instagram: { perfil: "/instagram/perfil", seguidores: "/instagram/seguidores", seguidos: "/instagram/seguidos" },
+  tiktok:    { perfil: "/tiktok/perfil",    seguidores: "/tiktok/seguidores",    seguidos: "/tiktok/seguidos"    },
+  x:         { perfil: "/x/perfil",         tweets: "/x/tweets"                                                  },
+  youtube:   { canal:  "/youtube/canal"                                                                           },
+  telegram:  { canal:  "/telegram/canal"                                                                          },
+  facebook:  { perfil: "/facebook/perfil"                                                                         },
+  web:       { perfil: "/web/perfil",        buscar: "/web/buscar"                                               }
+};
+
+const TIPOS_DIRECTOS = new Set(["perfil", "canal", "buscar"]);
+const TIPOS_CELERY   = new Set(["seguidores", "seguidos", "tweets"]);
+
+/* ================================================================
+   NAVEGACIÓN
+================================================================ */
+
+function initNav() {
+  const PAGE_TITLES = {
+    search:  "Búsqueda",
+    history: "Historial",
+    proxies: "Proxies",
+    legal:   "Marco Legal"
+  };
+
+  document.querySelectorAll(".nav-item").forEach(item => {
+    item.addEventListener("click", e => {
+      e.preventDefault();
+      const section = item.dataset.section;
+
+      // Actualizar nav activo
+      document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
+      item.classList.add("active");
+
+      // Mostrar sección correspondiente
+      document.querySelectorAll(".content-section").forEach(s => s.classList.add("hidden"));
+      document.getElementById(`section-${section}`).classList.remove("hidden");
+
+      // Título del topbar
+      document.getElementById("page-title").textContent = PAGE_TITLES[section] || section;
+
+      // Auto-cargar historial al entrar
+      if (section === "history") cargarHistorial();
+    });
+  });
+}
+
+/* ================================================================
+   SELECCIÓN DE PLATAFORMA Y TIPO
+================================================================ */
+
+function initPlatforms() {
+  document.querySelectorAll(".platform-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".platform-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      plataformaActual = btn.dataset.platform;
+      renderTypeTabs();
+      resetResultArea();
+    });
+  });
+}
+
+function renderTypeTabs() {
+  const tipos     = TIPOS_POR_PLATAFORMA[plataformaActual] || [];
+  const container = document.getElementById("type-tabs");
+  container.innerHTML = "";
+
+  tipos.forEach((tipo, i) => {
+    const tab      = document.createElement("button");
+    tab.className  = "type-tab" + (i === 0 ? " active" : "");
+    tab.dataset.tipo = tipo;
+    tab.textContent  = ETIQUETAS_TIPO[tipo] || tipo;
+
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".type-tab").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      tipoActual = tipo;
+      toggleMaxGroup();
+    });
+
+    container.appendChild(tab);
+  });
+
+  tipoActual = tipos[0] || "perfil";
+  toggleMaxGroup();
+}
+
+function toggleMaxGroup() {
+  const grupo  = document.getElementById("grupo-max-seguidores");
+  const label  = document.getElementById("label-max");
+  const esMasivo = TIPOS_CELERY.has(tipoActual);
+
+  grupo.classList.toggle("hidden", !esMasivo);
+
+  if (esMasivo) {
+    label.textContent =
+      tipoActual === "tweets"     ? "Máximo de tweets:" :
+      tipoActual === "seguidores" ? "Máximo de seguidores:" :
+                                    "Máximo de seguidos:";
+  }
+}
+
+/* ================================================================
+   SCRAPING PRINCIPAL
+================================================================ */
 
 async function scrapear() {
   const username = document.getElementById("username").value.trim();
-  const plataforma = document.getElementById("plataforma").value;
-  const tipo = document.getElementById("tipo").value;
-  const maxSeguidores = parseInt(document.getElementById("max_seguidores").value) || 3;
-
-  if (!username) return alert("Por favor ingresa un nombre de usuario.");
-
-  document.getElementById("resultado").innerHTML = "";
-  document.getElementById("resultado").style.display = "none";
-  document.getElementById("descarga").style.display = "none";
-  document.getElementById("boton-cancelar").style.display = "none";
-  resetearBarraProgreso();
-
-  const endpointMap = {
-    instagram: {
-      perfil: "/instagram/perfil",
-      seguidores: "/instagram/seguidores",
-      seguidos: "/instagram/seguidos"
-    },
-    tiktok: {
-      perfil: "/tiktok/perfil",
-      seguidores: "/tiktok/seguidores",
-      seguidos: "/tiktok/seguidos"
-    },
-    x: {
-      perfil: "/x/perfil",
-      tweets: "/x/tweets"
-    },
-    youtube: {
-      canal: "/youtube/canal"
-    },
-    telegram: {
-      canal: "/telegram/canal"
-    },
-    facebook: {
-      perfil: "/facebook/perfil"
-    },
-    web: {
-      perfil: "/web/perfil",
-      buscar: "/web/buscar"
-    }
-  };
-
-  const endpoint = endpointMap[plataforma]?.[tipo];
-  if (!endpoint) {
-    alert("Tipo de scraping no disponible para esta plataforma.");
+  if (!username) {
+    document.getElementById("username").focus();
     return;
   }
 
-  // Scraping directo (perfil o canal)
-  if (["perfil", "canal", "buscar"].includes(tipo)) {
-    document.getElementById("loader").style.display = "block";
-    document.getElementById("barra-progreso-container").style.display = "none";
+  const maxCount = parseInt(document.getElementById("max_seguidores").value) || 3;
+  const endpoint = ENDPOINT_MAP[plataformaActual]?.[tipoActual];
+  if (!endpoint) return;
 
-    const habilitarBusquedaWeb = document.getElementById("habilitar_busqueda_web")?.checked || false;
+  resetResultArea();
 
-    const body = tipo === "buscar"
-      ? { query: username } // el campo de búsqueda libre
-      : {
-          username,
-          habilitar_busqueda_web: document.getElementById("habilitar_busqueda_web")?.checked || false
-        };
+  const btnSearch = document.getElementById("btn-search");
+  btnSearch.disabled = true;
 
-    try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
+  try {
+    if (TIPOS_DIRECTOS.has(tipoActual)) {
+      await _scrapearDirecto(endpoint, username, tipoActual);
+    } else {
+      await _scrapearCelery(endpoint, username, tipoActual, maxCount);
+    }
+  } finally {
+    btnSearch.disabled = false;
+  }
+}
 
-      const json = await res.json();
-      document.getElementById("loader").style.display = "none";
+async function _scrapearDirecto(endpoint, username, tipo) {
+  showLoader();
 
-    if (!res.ok) {
-      // Si el backend devuelve {"estado": "duplicado"}
-      if (json.estado === "duplicado") {
-        document.getElementById("resultado").innerHTML = `⚠️ ${json.mensaje || "Este perfil ya fue scrapeado recientemente."}`;
-      } else {
-        document.getElementById("resultado").innerHTML = `❌ ${json.error || "Error al scrapear."}`;
-      }
-      document.getElementById("resultado").style.display = "block";
+  const body = tipo === "buscar"
+    ? { query: username }
+    : { username, habilitar_busqueda_web: false };
+
+  try {
+    const { ok, json } = await apiScrapearPerfil(endpoint, body);
+    hideLoader();
+
+    if (!ok) {
+      json.estado === "duplicado"
+        ? mostrarWarning(json.mensaje || "Este perfil ya fue analizado recientemente.")
+        : mostrarError(json.error   || "Error al analizar el perfil.");
       return;
     }
 
+    mostrarResultado(json, plataformaActual);
+    activarDescarga(json.excel_path, json.csv_path);
 
-      mostrarResultado(json);
-      activarDescarga(json.excel_path, json.csv_path);
+  } catch {
+    hideLoader();
+    mostrarError("No se pudo conectar con el servidor.");
+  }
+}
 
-    } catch (err) {
-      console.error("❌ Error inesperado:", err);
-      document.getElementById("loader").style.display = "none";
-      document.getElementById("resultado").innerHTML = "❌ Error inesperado al scrapear.";
-    }
+async function _scrapearCelery(endpoint, username, tipo, maxCount) {
+  initTerminal();
+  logLine(`Iniciando análisis de ${tipo} para @${username}...`);
+  logLine(`Límite configurado: ${maxCount} registros`, "dim");
 
-  // Scraping de tareas (seguidores, seguidos, tweets)
-  } else if (["seguidores", "seguidos", "tweets"].includes(tipo)) {
-    document.getElementById("loader").style.display = "none";
-    document.getElementById("barra-progreso-container").style.display = "block";
-    actualizarBarraProgreso(0, maxSeguidores);
+  const payload = { username };
+  if (tipo === "seguidores") payload.max_seguidores = maxCount;
+  if (tipo === "seguidos")   payload.max_seguidos   = maxCount;
+  if (tipo === "tweets")     payload.max_tweets     = maxCount;
 
-    try {
-      const payload = { username };
+  try {
+    const { ok, json } = await apiIniciarTarea(endpoint, payload);
 
-      if (tipo === "seguidores") payload.max_seguidores = maxSeguidores;
-      if (tipo === "seguidos") payload.max_seguidos = maxSeguidores;
-      if (tipo === "tweets") payload.max_tweets = maxSeguidores;
-
-      const tareaRes = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-    const json = await tareaRes.json();
-
-    if (!tareaRes.ok) {
-      if (json.estado === "duplicado") {
-        document.getElementById("resultado").innerHTML = `⚠️ ${json.mensaje || "Ya se hizo esta tarea recientemente."}`;
-      } else {
-        document.getElementById("resultado").innerHTML = `❌ ${json.error || "Error al iniciar tarea."}`;
-      }
-      document.getElementById("resultado").style.display = "block";
+    if (!ok) {
+      logLine(
+        json.estado === "duplicado"
+          ? (json.mensaje || "Tarea ya realizada recientemente.")
+          : (json.error   || "Error al iniciar la tarea."),
+        "error"
+      );
       return;
     }
 
     const { tarea_id } = json;
-    if (!tarea_id) {
-      document.getElementById("resultado").innerHTML = "❌ No se recibió ID de tarea.";
-      document.getElementById("resultado").style.display = "block";
-      return;
-    }
+    if (!tarea_id) { logLine("No se recibió ID de tarea.", "error"); return; }
 
-      tareaActivaId = tarea_id;
-      document.getElementById("boton-cancelar").style.display = "inline-block";
-      esperarResultado(tarea_id, maxSeguidores);
+    tareaActivaId = tarea_id;
+    showCancelBtn();
+    logLine(`Tarea encolada — ID: ${tarea_id}`, "dim");
+    logLine("Procesando en segundo plano...");
 
-    } catch (err) {
-      console.error("❌ Error al lanzar tarea:", err);
-      document.getElementById("resultado").innerHTML = `❌ Error al iniciar scraping de ${tipo}.`;
-    }
+    _esperarResultado(tarea_id);
+
+  } catch {
+    logLine("Error inesperado al iniciar la tarea.", "error");
   }
 }
 
-// Cancelar tarea Celery activa
-async function cancelarScraping() {
-  if (!tareaActivaId) return;
+/* ================================================================
+   POLLING DE TAREA CELERY
+================================================================ */
 
-  try {
-    const res = await fetch(`/cancelar-tarea/${tareaActivaId}`, { method: "POST" });
-    const json = await res.json();
-    document.getElementById("boton-cancelar").style.display = "none";
-    document.getElementById("barra-progreso-container").style.display = "none";
-    document.getElementById("resultado").innerHTML = `⏹ ${json.mensaje || "Scraping cancelado"}`;
-  } catch (err) {
-    console.error("❌ Error al cancelar tarea:", err);
-    document.getElementById("resultado").innerHTML = "❌ No se pudo cancelar la tarea.";
-  }
-
-  tareaActivaId = null;
-}
-
-// Espera el resultado de una tarea Celery
-async function esperarResultado(tareaId, maxSeguidores) {
-  let progreso = 0;
-  const progresoInterval = setInterval(() => {
-    if (progreso < maxSeguidores) {
-      progreso++;
-      actualizarBarraProgreso(progreso, maxSeguidores);
-    }
-  }, 2000);
+async function _esperarResultado(tareaId) {
+  let intentos   = 0;
+  const MAX_INTENTOS = 120; // 4 min máximo
 
   const check = async () => {
     try {
-      const res = await fetch(`/resultado-tarea/${tareaId}`);
-      if (!res.ok) throw new Error(`❌ Error HTTP ${res.status}`);
-      const json = await res.json();
+      const json = await apiEstadoTarea(tareaId);
+      intentos++;
 
       if (json.estado === "pendiente") {
-        setTimeout(check, 2000);
-      } else {
-        clearInterval(progresoInterval);
-        document.getElementById("barra-progreso-container").style.display = "none";
-        document.getElementById("boton-cancelar").style.display = "none";
-        tareaActivaId = null;
-
-        if (json.estado === "error") {
-          document.getElementById("resultado").innerHTML = `❌ ${json.mensaje || "Error en la tarea de scraping."}`;
-        } else {
-          mostrarResultado(json.data);
-          activarDescarga(json.excel_path, json.csv_path);
-        }
+        if (intentos % 5 === 0) logLine(`En proceso... (${intentos * 2}s)`, "dim");
+        if (intentos < MAX_INTENTOS) setTimeout(check, 2000);
+        else { logLine("Tiempo de espera agotado. Inténtalo de nuevo.", "warn"); hideCancelBtn(); }
+        return;
       }
 
-    } catch (err) {
-      clearInterval(progresoInterval);
-      document.getElementById("boton-cancelar").style.display = "none";
-      console.error("❌ Error al obtener resultado:", err);
-      document.getElementById("resultado").innerHTML = "❌ Error inesperado al obtener el resultado.";
+      hideCancelBtn();
+      tareaActivaId = null;
+
+      if (json.estado === "error") {
+        logLine(json.mensaje || "Error en la tarea de scraping.", "error");
+      } else {
+        const n = Array.isArray(json.data) ? json.data.length : 1;
+        logLine(`✓ Completado — ${n} registro${n !== 1 ? "s" : ""} obtenido${n !== 1 ? "s" : ""}.`);
+        setTimeout(() => {
+          closeTerminal();
+          mostrarResultado(json.data, plataformaActual);
+          activarDescarga(json.excel_path, json.csv_path);
+        }, 700);
+      }
+
+    } catch {
+      hideCancelBtn();
+      logLine("Error al consultar el estado de la tarea.", "error");
     }
   };
 
   check();
 }
 
-// Muestra resultados en pantalla formateados
-function mostrarResultado(data) {
-  const resultadoDiv = document.getElementById("resultado");
+/* ================================================================
+   CANCELAR TAREA
+================================================================ */
 
-  // Unificar: si es solo un objeto, convertirlo a array
-  const lista = Array.isArray(data) ? data : (data ? [data] : []);
-
-  if (lista.length === 0) {
-    resultadoDiv.innerHTML = "<p>No se encontraron resultados.</p>";
-    resultadoDiv.style.display = "block";
-    return;
+async function cancelarScraping() {
+  if (!tareaActivaId) return;
+  try {
+    const json = await apiCancelarTarea(tareaActivaId);
+    logLine(json.mensaje || "Scraping cancelado.", "warn");
+    hideCancelBtn();
+    tareaActivaId = null;
+  } catch {
+    logLine("No se pudo cancelar la tarea.", "error");
   }
-
-  let tabla = "<table class='table table-striped table-bordered table-sm'>";
-  tabla += "<thead><tr><th>👤 Usuario</th><th>📛 Nombre</th><th>📧 Email</th><th>📞 Teléfono</th><th>📌 Fuente</th></tr></thead><tbody>";
-
-  lista.forEach(r => {
-    tabla += "<tr>";
-    tabla += `<td>${r.usuario || "-"}</td>`;
-    tabla += `<td>${r.nombre || "-"}</td>`;
-    tabla += `<td>${r.email || "-"}</td>`;
-    tabla += `<td>${r.telefono || "-"}</td>`;
-    tabla += `<td>${r.origen || "-"}</td>`;
-    tabla += "</tr>";
-  });
-
-  tabla += "</tbody></table>";
-  resultadoDiv.style.display = "block";
-  resultadoDiv.innerHTML = tabla;
 }
 
-// Activa botones de descarga de Excel y/o CSV (con validación)
-function activarDescarga(excelPath, csvPath = null) {
-  const descargaDiv = document.getElementById("descarga");
-  const excelLink = document.getElementById("link-descarga-excel");
-  const csvLink = document.getElementById("link-descarga-csv");
+/* ================================================================
+   HISTORIAL
+================================================================ */
 
-  // Validar que los elementos existen en el DOM
-  if (!descargaDiv || !excelLink || !csvLink) {
-    console.warn("⚠️ Elementos de descarga no encontrados en el DOM.");
-    return;
+async function cargarHistorial() {
+  const contenedor = document.getElementById("historial-container");
+  contenedor.innerHTML = `<p class="empty-state skeleton" style="height:36px;width:100%"></p>`;
+  try {
+    const historial = await apiHistorial();
+    renderHistorial(historial);
+  } catch {
+    contenedor.innerHTML = `<p class="empty-state">Error al cargar el historial.</p>`;
   }
-
-  let mostrarDescarga = false;
-
-  if (excelPath) {
-    excelLink.href = excelPath;
-    excelLink.download = excelPath.split("/").pop();
-    excelLink.style.display = "inline-block";
-    mostrarDescarga = true;
-  } else {
-    excelLink.style.display = "none";
-  }
-
-  if (csvPath) {
-    csvLink.href = csvPath;
-    csvLink.download = csvPath.split("/").pop();
-    csvLink.style.display = "inline-block";
-    mostrarDescarga = true;
-  } else {
-    csvLink.style.display = "none";
-  }
-
-  descargaDiv.style.display = mostrarDescarga ? "block" : "none";
-}
-
-
-// Actualiza visualmente la barra de progreso
-function actualizarBarraProgreso(actual, total) {
-  const porcentaje = Math.min(100, Math.floor((actual / total) * 100));
-  const barra = document.getElementById("barra-progreso");
-  barra.style.width = `${porcentaje}%`;
-  barra.textContent = `${porcentaje}%`;
-}
-
-// Resetea la barra de progreso
-function resetearBarraProgreso() {
-  const barra = document.getElementById("barra-progreso");
-  barra.style.width = "0%";
-  barra.textContent = "0%";
-  document.getElementById("barra-progreso-container").style.display = "none";
-}
-
-// Muestra u oculta opciones según tipo
-function mostrarOpciones() {
-  const tipo = document.getElementById("tipo").value;
-  const plataforma = document.getElementById("plataforma").value;
-  const mostrarCheckbox = (tipo === "perfil" || tipo === "canal") && plataforma !== "web";
-}
-
-// Configura los selectores al cargar la página
-document.addEventListener("DOMContentLoaded", () => {
-  const plataformaSelect = document.getElementById("plataforma");
-  const tipoSelect = document.getElementById("tipo");
-  const grupoMax = document.getElementById("grupo-max-seguidores");
-  const labelMax = document.getElementById("label-max");
-
-  const tiposPorPlataforma = {
-    instagram: ["perfil", "seguidores", "seguidos"],
-    tiktok: ["perfil", "seguidores", "seguidos"],
-    x: ["perfil", "tweets"],
-    youtube: ["canal"],
-    telegram: ["canal"],
-    facebook: ["perfil"],
-    web: ["perfil", "buscar"]
-  };
-
-  const etiquetasTipo = {
-    perfil: "Perfil",
-    seguidores: "Seguidores",
-    seguidos: "Seguidos",
-    tweets: "Tweets",
-    canal: "Canal",
-    buscar: "Palabra Clave"
-  };
-
-  plataformaSelect.addEventListener("change", () => {
-    const plataforma = plataformaSelect.value;
-    const tiposDisponibles = tiposPorPlataforma[plataforma] || [];
-
-    tipoSelect.innerHTML = "";
-    tiposDisponibles.forEach(tipo => {
-      const option = document.createElement("option");
-      option.value = tipo;
-      option.textContent = etiquetasTipo[tipo] || tipo;
-      tipoSelect.appendChild(option);
-    });
-
-    tipoSelect.dispatchEvent(new Event("change"));
-    mostrarOpciones();
-  });
-
-  tipoSelect.addEventListener("change", () => {
-    const tipo = tipoSelect.value;
-    if (["seguidores", "seguidos", "tweets"].includes(tipo)) {
-      grupoMax.style.display = "block";
-      labelMax.textContent =
-        tipo === "tweets" ? "Nº máximo de tweets a scrapear:" :
-        tipo === "seguidores" ? "Nº máximo de seguidores a scrapear:" :
-        "Nº máximo de seguidos a scrapear:";
-    } else {
-      grupoMax.style.display = "none";
-    }
-    mostrarOpciones();
-  });
-
-  plataformaSelect.dispatchEvent(new Event("change"));
-});
-
-
-// Mostrar / ocultar historial al hacer clic
-async function toggleHistorial() {
-    const contenedor = document.getElementById("historial-container");
-    if (contenedor.style.display === "none") {
-        try {
-            const respuesta = await fetch("/historial");
-            if (!respuesta.ok) throw new Error("Error al cargar historial");
-            const historial = await respuesta.json();
-            contenedor.innerHTML = generarTablaHistorial(historial);
-            contenedor.style.display = "block";
-        } catch (error) {
-            contenedor.innerHTML = "<p>Error al cargar el historial.</p>";
-            contenedor.style.display = "block";
-        }
-    } else {
-        contenedor.style.display = "none";
-    }
-}
-
-// Genera la tabla HTML con los datos del historial
-function generarTablaHistorial(historial) {
-    if (historial.length === 0) {
-        return "<p>No hay registros de historial.</p>";
-    }
-
-    let tabla = "<table class='table table-bordered table-sm'>";
-    tabla += "<thead><tr>";
-    tabla += "<th>📅 Fecha</th><th>📱 Plataforma</th><th>👤 Usuario</th><th>✅ Resultado</th><th>📥 Archivo</th>";
-    tabla += "</tr></thead><tbody>";
-
-    historial.forEach(registro => {
-        tabla += "<tr>";
-        tabla += `<td>${registro.fecha}</td>`;
-        tabla += `<td>${registro.plataforma}</td>`;
-        tabla += `<td>${registro.usuario}</td>`;
-        tabla += `<td>${registro.resultado}</td>`;
-
-        if (registro.archivo && registro.archivo.trim() !== "") {
-            const extension = registro.archivo.endsWith(".csv") ? "CSV" :
-                              registro.archivo.endsWith(".xlsx") ? "Excel" : "Archivo";
-            tabla += `<td><button class="btn btn-sm btn-primary" onclick="window.open('/descargar/${registro.archivo}', '_blank')">Descargar ${extension}</button></td>`;
-        } else {
-            tabla += "<td>—</td>";
-        }
-
-        tabla += "</tr>";
-    });
-
-    tabla += "</tbody></table>";
-    return tabla;
 }
 
 async function borrarHistorial() {
-    if (!confirm("¿Estás seguro de que quieres borrar el historial?")) return;
-    const respuesta = await fetch("/historial", { method: "DELETE" });
-    if (respuesta.ok) {
-        alert("Historial borrado correctamente.");
-        document.getElementById("historial-container").innerHTML = "";
-    } else {
-        alert("Error al borrar el historial.");
-    }
+  if (!confirm("¿Borrar todo el historial? Esta acción no se puede deshacer.")) return;
+  const ok = await apiBorrarHistorial();
+  if (ok)  renderHistorial([]);
+  else     alert("Error al borrar el historial.");
 }
+
+/* ================================================================
+   PROXIES
+================================================================ */
 
 async function cargarProxies() {
   const textarea = document.getElementById("proxies_input");
-  const modo = document.getElementById("modo_proxies").value;
-  const proxies = textarea.value.trim().split("\n");
+  const modo     = document.getElementById("modo_proxies").value;
+  const proxies  = textarea.value.trim().split("\n").filter(p => p.trim());
 
-  if (proxies.length === 0 || proxies[0] === "") {
-    alert("⚠️ Debes pegar al menos un proxy.");
+  if (proxies.length === 0) {
+    setProxyFeedback("⚠️ Debes pegar al menos un proxy.", "error");
     return;
   }
 
-  // Confirmación solo si se va a sobrescribir
   if (modo === "replace") {
-    const yaHay = await fetch("/proxies/contar");
-    const { total } = await yaHay.json();
-    if (total > 0) {
-      const confirmar = confirm(`⚠️ Ya hay ${total} proxy(s) cargados.\n¿Deseas sobrescribirlos completamente?\nEsta acción eliminará los anteriores.`);
-      if (!confirmar) return;
-    }
+    try {
+      const { total } = await apiContarProxies();
+      if (total > 0 && !confirm(`Ya hay ${total} proxy(s) cargado(s). ¿Sobrescribir?`)) return;
+    } catch { /* ignorar si el endpoint no responde */ }
   }
 
-  const res = await fetch("/proxies/subir_proxies", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ proxies, modo })
+  const { ok, json } = await apiSubirProxies(proxies, modo);
+  if (ok) setProxyFeedback("✅ " + (json.mensaje || "Proxies cargados correctamente."), "ok");
+  else    setProxyFeedback("❌ " + (json.error   || "No se pudo cargar la lista."),    "error");
+}
+
+/* ================================================================
+   INIT
+================================================================ */
+
+document.addEventListener("DOMContentLoaded", () => {
+  initNav();
+  initPlatforms();
+  renderTypeTabs();
+
+  // Enter para buscar
+  document.getElementById("username").addEventListener("keydown", e => {
+    if (e.key === "Enter") scrapear();
   });
-
-  const mensajeDiv = document.getElementById("proxies_mensaje");
-  const data = await res.json();
-
-  if (res.ok) {
-    mensajeDiv.innerHTML = "✅ " + (data.mensaje || "Proxies cargados correctamente.");
-  } else {
-    mensajeDiv.innerHTML = "❌ Error: " + (data.error || "No se pudo cargar la lista.");
-  }
-}
-
-function toggleProxiesForm() {
-  const formulario = document.getElementById("formulario-proxies");
-  formulario.style.display = (formulario.style.display === "none") ? "block" : "none";
-}
+});

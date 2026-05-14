@@ -1,0 +1,76 @@
+/* ================================================================
+   VERITRACE — Micro-animations
+   ================================================================ */
+
+/* ---- Keyframes ---- */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to   { background-position:  200% 0; }
+}
+
+/* ---- Aplicaciones ---- */
+
+/* Secciones al cambiar de nav */
+.content-section:not(.hidden) {
+  animation: fadeIn 0.15s ease;
+}
+
+/* Tarjetas de resultado al aparecer */
+.result-card {
+  animation: slideIn 0.2s ease;
+}
+
+/* Platform buttons: transición suave */
+.platform-btn {
+  transition:
+    background  0.14s ease,
+    border-color 0.14s ease,
+    color        0.14s ease,
+    transform    0.14s ease;
+}
+
+/* Cursor parpadeante en terminal */
+.terminal-cursor {
+  display: inline-block;
+  width: 6px;
+  height: 13px;
+  background: #7ee787;
+  margin-left: 3px;
+  animation: blink 1s step-end infinite;
+  vertical-align: middle;
+  border-radius: 1px;
+}
+
+/* Skeleton loader */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-elevated) 25%,
+    var(--bg-hover)    50%,
+    var(--bg-elevated) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: var(--radius-sm);
+  color: transparent !important;
+  user-select: none;
+}
