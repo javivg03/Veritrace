@@ -1,3 +1,15 @@
+# =============================================================================
+# Veritrace — Plataforma de Due Diligence Digital
+# Versión: 2.0.0
+#
+# Esta herramienta extrae exclusivamente información pública de perfiles en
+# redes sociales. No accede a APIs privadas, mensajes directos ni datos
+# protegidos de ningún tipo.
+#
+# Uso sujeto al marco legal europeo de protección de datos (RGPD).
+# Consulta LEGAL.md para el aviso legal completo antes de usar este software.
+# =============================================================================
+
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles

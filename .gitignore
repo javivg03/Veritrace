@@ -39,6 +39,7 @@ proxies.json
 
 # Archivos de trabajo personal
 workspace.txt
+raw_proxies.txt 
 
 # Logs de la aplicación
 logs/

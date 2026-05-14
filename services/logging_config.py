@@ -10,4 +10,4 @@ logging.basicConfig(
     ]
 )
 
-logger = logging.getLogger("fct_scraper")
+logger = logging.getLogger("veritrace")

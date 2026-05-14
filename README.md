@@ -1,142 +1,158 @@
-# 🔎 Tracebit – Scraping Multiplataforma de Perfiles Públicos
+# Veritrace — Plataforma de Due Diligence Digital
 
-Tracebit es una herramienta web profesional para la extracción automatizada de datos públicos desde redes sociales y otras plataformas online. Está diseñada para facilitar tareas de captación, análisis y marketing mediante un sistema multired inteligente, que permite extraer información de contacto, seguidores o actividad pública de forma organizada y exportable.
+> Herramienta OSINT de análisis de huella pública en redes sociales, orientada a entornos
+> de compliance, KYC, AML y verificación de identidad digital.
 
-> Proyecto desarrollado como parte del Grado de Desarrollo de Aplicaciones Web (DAW), con aplicación directa en entornos reales de empresa.
-
----
-
-## 🚀 Tecnologías utilizadas
-
-- 🐍 Python 3.11  
-- ⚡ FastAPI  
-- 🧠 Playwright async (scraping avanzado con proxies)  
-- 🎯 HTML, CSS y JavaScript (frontend funcional)  
-- 🔄 Celery + Redis (scraping masivo en segundo plano)  
-- 🐳 Docker y Docker Compose  
-- 📄 Pandas (exportación Excel/CSV)
+[![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110-009688?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker)](https://www.docker.com/)
+[![Celery](https://img.shields.io/badge/Celery-Redis-37814A?logo=celery)](https://docs.celeryq.dev/)
+[![Licencia](https://img.shields.io/badge/Licencia-No%20Comercial-lightgrey)](./LICENSE.txt)
+[![Aviso Legal](https://img.shields.io/badge/⚖️_Uso_ético_y_legal-LEGAL.md-orange)](./LEGAL.md)
 
 ---
 
-## 🛠️ Requisitos previos
+## ¿Qué es Veritrace?
 
-1. Tener [Docker Desktop](https://www.docker.com/products/docker-desktop/) instalado  
-2. Tener `git` instalado  
-3. Usar terminal moderna (PowerShell, WSL o Bash)  
-4. Opcional: Añadir proxies en `services/proxies.json` si deseas scraping masivo sin bloqueos
+Veritrace es una plataforma de **análisis OSINT** (*Open Source Intelligence*) que automatiza
+la extracción y estructuración de información pública disponible en redes sociales. Está
+diseñada para dar soporte a procesos de:
+
+- **Due diligence digital** en operaciones corporativas o de inversión
+- **KYC / AML**: verificación de identidad y detección de señales de riesgo
+- **Compliance**: análisis de reputación y huella digital de contrapartes
+- **Investigación legal**: consolidación de perfil público de personas o entidades
+
+> ⚠️ Veritrace extrae **exclusivamente información pública**. No accede a APIs privadas,
+> mensajes directos ni datos protegidos. Consulta [LEGAL.md](./LEGAL.md) para el marco
+> normativo completo (RGPD art. 5 y 6, AMLD5/AMLD6, FATF/GAFI).
+
+---
+
+## ⚖️ Uso ético y legal
+
+Este proyecto ha sido desarrollado con plena conciencia del marco normativo europeo en
+materia de protección de datos y privacidad.
+
+📄 **[Consulta el Aviso Legal completo → LEGAL.md](./LEGAL.md)**
+
+Entre otros puntos, el documento cubre:
+- Qué datos extrae y qué datos **nunca** extrae
+- Base legitimadora bajo el RGPD (art. 6.1.f — interés legítimo)
+- Responsabilidad del usuario final
+- Relación con los ToS de las plataformas consultadas
+
+---
+
+## 🏗️ Arquitectura técnica
+
+```
+┌─────────────────────────────────────────────────────┐
+│                     Cliente Web                      │
+│              HTML + CSS + JavaScript                 │
+└─────────────────────┬───────────────────────────────┘
+                      │ HTTP/REST
+┌─────────────────────▼───────────────────────────────┐
+│                  FastAPI (app.py)                    │
+│         Routers por plataforma · OpenAPI /docs       │
+└──────┬──────────────┬──────────────────┬────────────┘
+       │              │                  │
+┌──────▼──────┐ ┌─────▼──────┐ ┌────────▼───────┐
+│  Playwright  │ │   Celery   │ │   Exportador   │
+│  (scraping   │ │  Workers   │ │  Excel / CSV   │
+│   async)     │ │  (tareas   │ │  (Pandas)      │
+└──────┬──────┘ │  masivas)  │ └────────────────┘
+       │        └─────┬──────┘
+┌──────▼──────┐ ┌─────▼──────┐
+│ Proxy Pool  │ │   Redis    │
+│ (rotativo)  │ │  (broker + │
+│             │ │  backend)  │
+└─────────────┘ └────────────┘
+```
+
+### Stack completo
+
+| Capa | Tecnología | Rol |
+|------|-----------|-----|
+| API | **FastAPI** + Uvicorn | Endpoints REST, documentación OpenAPI automática |
+| Scraping | **Playwright** (async) | Navegador headless con soporte de proxies y evasión de bots |
+| Cola de tareas | **Celery** + **Redis** | Scraping masivo asíncrono (seguidores, tweets, etc.) |
+| Frontend | HTML5 + CSS3 + JS vanilla | Dashboard de búsqueda e historial |
+| Exportación | **Pandas** | Generación de archivos `.xlsx` y `.csv` estructurados |
+| Proxies | Pool rotativo propio | Gestión, validación y rotación automática de proxies |
+| Contenedores | **Docker** + Docker Compose | Despliegue reproducible en cualquier entorno |
+| Runtime | **Python 3.12** | Última versión estable con mejoras de rendimiento |
+
+---
+
+## 🧪 Plataformas soportadas
+
+| Plataforma | Estado | Perfil individual | Análisis masivo |
+|------------|--------|-------------------|-----------------|
+| Instagram | ✅ Operativo | ✅ | ✅ Seguidores/seguidos (Celery) |
+| TikTok | ✅ Operativo | ✅ | ✅ Seguidores/seguidos (Celery) |
+| X (Twitter) | ✅ Operativo | ✅ | ✅ Tweets recientes (Celery) |
+| YouTube | ✅ Operativo | ✅ Canal | — No aplica |
+| Facebook | ✅ Operativo | ✅ | 🔜 En desarrollo |
+| Telegram | ✅ Operativo | ✅ Canales públicos | — No aplica |
 
 ---
 
 ## 📦 Instalación rápida
 
+**Requisitos previos:** Docker Desktop, Git
+
 ```bash
-git clone https://github.com/TU-USUARIO/Tracebit.git
-cd Tracebit
+git clone https://github.com/TU-USUARIO/veritrace.git
+cd veritrace
+cp .env.example .env        # Edita .env con tus valores
 docker-compose up --build
 ```
 
-➡️ Abre [http://localhost:8000](http://localhost:8000) en tu navegador
+➡️ Abre [http://localhost:8000](http://localhost:8000)  
+➡️ Documentación OpenAPI: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ---
 
-## ✨ Cómo funciona
+## ✨ Flujo de uso
 
-1. Selecciona la plataforma (Instagram, TikTok, YouTube, etc.)
-2. Selecciona el tipo de scraping:
-   - Perfil individual (async, rápido)
-   - Seguidores / seguidos / tweets (masivo, requiere tiempo)
-3. Introduce el nombre de usuario (o nombre real)
-4. Elige si deseas activar la búsqueda cruzada web (opcional)
-5. Pulsa **Buscar**
-6. Visualiza los resultados y exporta a Excel o CSV
-7. Revisa el historial, repite o elimina búsquedas anteriores
-
----
-
-## 🧪 Scrapers disponibles
-
-| Plataforma   | Estado       | Perfil individual | Seguidores / Seguidos / Tweets |
-|--------------|--------------|-------------------|---------------------------------|
-| Instagram    | ✅ Funciona   | ✅ Sí              | ✅ Sí (Celery)                  |
-| TikTok       | ✅ Funciona   | ✅ Sí              | ✅ Sí (Celery)                  |
-| X (Twitter)  | ✅ Funciona   | ✅ Sí              | ✅ Tweets recientes (Celery)   |
-| YouTube      | ✅ Funciona   | ✅ Sí              | ❌ No aplica                   |
-| Facebook     | ✅ Funciona   | ✅ Sí              | 🔜 En desarrollo               |
-| Telegram     | ✅ Funciona   | ✅ Solo canales    | ❌ No aplica                   |
-
-> ❌ Web scraping general (DuckDuckGo/Bing) está desactivado actualmente por bloqueos y rendimiento.
+1. Selecciona la plataforma objetivo
+2. Introduce el nombre de usuario o perfil
+3. Elige el tipo de análisis (perfil rápido o análisis masivo en segundo plano)
+4. Activa la búsqueda cruzada web para ampliar la huella digital (opcional)
+5. Visualiza los resultados estructurados en el dashboard
+6. Exporta a `.xlsx` o `.csv` para su incorporación a informes
 
 ---
 
 ## 📤 Exportación de resultados
 
-- Resultados estructurados en `exports/`
-- Formatos disponibles: `.xlsx`, `.csv`
-- Accesibles desde la interfaz o por URL directa `/download/...`
-- Compatible con CRM, hojas de cálculo o tratamiento externo
+- Archivos generados en `exports/`
+- Formatos: `.xlsx` (con cabeceras estructuradas) y `.csv`
+- Accesibles desde la interfaz o directamente via `/download/`
+- Preparados para integración con CRM, hojas de cálculo o herramientas de análisis
 
 ---
 
-## 📜 Historial y control
+## 🛣️ Roadmap
 
-- Guardado automático de todas las búsquedas
-- Visualización cronológica
-- Permite repetir, exportar o eliminar entradas
-- Evita scrapear duplicados en un mismo día
-
----
-
-## ⚙️ Automatización avanzada
-
-- Flujo multired: si no se encuentra dato en una red, pasa a la siguiente
-- Validación automática de emails y teléfonos (formato, duplicados, spam)
-- Scraping masivo en segundo plano con Celery + Redis
-- Proxies rotativos gestionados desde `services/proxy_pool.py`
-
----
-
-## 🧩 Mejoras futuras previstas
-
-- Automatización de exportaciones periódicas (ej: envío a Google Sheets)
-- Panel de administración para historial, tareas y configuración
-- Integración con herramientas como n8n, Zapier o CRMs
+- [ ] Risk Score visual (0–100) — coherencia de huella digital entre plataformas
+- [ ] Generación de informe PDF descargable (due diligence report)
+- [ ] Migración del historial de CSV a SQLite con SQLAlchemy
+- [ ] Autenticación básica (FastAPI HTTP Basic Auth)
+- [ ] Despliegue en Railway.app
 
 ---
 
 ## 🧑‍💻 Autor
 
-- **Javier Villaseñor García**
-  - Técnico Superior en Desarrollo de Aplicaciones Web
-  - Especializado en ciberseguridad, protección de datos, scraping y automatización
-  - Perfil híbrido legal–técnico orientado a soluciones reales
+**Javier Villaseñor García**  
+Perfil híbrido técnico-legal | Finanzas · Compliance · Protección de datos · Legal-tech  
+Técnico Superior en Desarrollo de Aplicaciones Web
 
 ---
 
 ## ⚖️ Licencia
 
-Este proyecto está licenciado bajo una **licencia personalizada de uso no comercial**.
-
-Puedes utilizar, modificar y redistribuir este software con fines personales, educativos o académicos, pero se prohíbe el uso comercial sin autorización expresa.
-
-Consulta el archivo [LICENSE.txt](./LICENSE.txt) para ver los términos completos.
-
----
-
-## 📌 Aviso legal
-
-Tracebit se ha desarrollado con fines educativos, y solo extrae información pública disponible en perfiles abiertos.  
-El uso indebido de esta herramienta queda bajo la responsabilidad del usuario.  
-Se recomienda respetar las políticas de uso de cada plataforma y la legislación vigente sobre protección de datos.
-
----
-
-## 📎 Recursos
-
-- Documentación técnica completa en `/docs/`
-- Capturas, ejemplos y código fuente incluidos en el repositorio
-- Compatible con despliegue en VPS, Hostinger, Contabo, etc.
-
----
-
-¡Gracias por revisar este proyecto!  
-Puedes contactarme o revisar mi perfil para más información sobre cómo aplicar Tracebit en contextos reales.
+Licencia de uso no comercial. Permitido uso académico, educativo y de investigación.  
+Consulta [LICENSE.txt](./LICENSE.txt) para los términos completos.
